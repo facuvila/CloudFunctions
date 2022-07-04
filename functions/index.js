@@ -6,8 +6,8 @@ admin.initializeApp();
 exports.createProfile = functions.auth.user().onCreate((user) => {
     return admin.firestore().collection('users').doc(user.uid).set({
         email: user.email,
-        balance: 0, 
-        plantedTrees: 0,
+        balance: 0,
+        contributedTrees: 0, //Árboles aportados
         contacts: [],
         isVendor: false
     });
@@ -21,18 +21,17 @@ exports.deleteProfile = functions.auth.user().onDelete((user) => {
 
 //Run on call, retrieves asked user's data.
 exports.getUserData = functions.https.onCall(async (data, context) => {
-    console.log(context.auth.uid);
     return await admin.firestore().collection('users').doc(data.uid).get()
     .then((doc) => {
         const retrievedData = doc.data();
-
         if (data.uid == context.auth.uid ) {
             return retrievedData;
         } else {
             return {
+                //En caso de ser un retriever ajeno, sólo devuelve datos no sensibles.
                 email: retrievedData.email,
                 isVendor: retrievedData.isVendor,
-                plantedTrees: retrievedData.plantedTrees
+                contributedTrees: retrievedData.contributedTrees
             }
         }
     });
@@ -48,8 +47,7 @@ exports.createTransaction = functions.https.onCall( async (data, context) => {
             const retrievedData = doc.data();
             return {
                 balance: retrievedData.balance,
-                isVendor: retrievedData.isVendor,
-                plantedTrees: retrievedData.plantedTrees
+                isVendor: retrievedData.isVendor
             }
         });
     }
@@ -61,38 +59,50 @@ exports.createTransaction = functions.https.onCall( async (data, context) => {
     let targetUser = await getData(data.uid);
 
     let fee = 0;
-
-    originUser.balance -= data.amount;
+    let treeAmount = 0;
 
     if (targetUser.isVendor) {
-        targetUser.balance += parseInt(data.amount) * 0.98;
-        originUser.plantedTrees += data.amount / 1000;
         fee = data.amount * 0.02;
+        targetUser.balance += parseInt(data.amount) - fee;
+        treeAmount = data.amount / 1000;
     } else {
         targetUser.balance += parseInt(data.amount); //Somewhy data.amount is a string now? So got to parse it to INT. A ARREGLAR.
     }
 
     let originRef = usersRef.doc(context.auth.uid);
     let targetRef = usersRef.doc(data.uid);
+    let leafRef = usersRef.doc('dtdAiM9nChcNdyR1a9NpC1e54Ag2');
+    let plantRef = admin.firestore().collection('plantationData').doc('globalTrees');
     let regRef = admin.firestore().collection('transactions').doc();
 
     //COMIENZO DE TRANSACTION
     const batch = admin.firestore().batch();
 
     batch.update(originRef, {
-        balance: originUser.balance,
-        plantedTrees: originUser.plantedTrees
+        balance: admin.firestore.FieldValue.increment(-1 * data.amount),
+        contributedTrees: admin.firestore.FieldValue.increment(treeAmount)
     });
 
     batch.update(targetRef, {
         balance: targetUser.balance
     });
 
+    //Agrega la comisión a la cuenta Admin de Leaf.
+    batch.update(leafRef, {
+        balance: admin.firestore.FieldValue.increment(fee)
+    });
+
+    batch.update(plantRef, {
+        willPlant: admin.firestore.FieldValue.increment(treeAmount)
+    });
+
+    data.amount = parseInt(data.amount); //A INVESTIGAR PORQUÉ SE HACE STRING
     batch.set(regRef, {
         idOrigin: context.auth.uid,
         idTarget: data.uid,
         amount: data.amount,
-        fee: fee
+        fee: fee,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
     });
 
     // FIN DE TRANSACTION
@@ -101,8 +111,37 @@ exports.createTransaction = functions.https.onCall( async (data, context) => {
     return {status: 'Ok', code: 200, message: 'Transaction completed.'};
 });
 
-/*exports.alikeUsernames = functions.https.onCall(async (data) => {
+//Al crear un nuevo evento de plantación, la siguiente función actualiza los árboles plantados totales.
+exports.plantationEvent = functions.firestore.document('plantationEvent/{plantationId}').onCreate( async (snap) => {
+    const plantationEvent = await snap.data();
+    const plantedTrees = plantationEvent.plantedTrees;
+    
+    return admin.firestore().collection('plantationData').doc('globalTrees').update({
+        didPlant: admin.firestore.FieldValue.increment(plantedTrees)
+    });
+});
+
+
+exports.alikeUsernames = functions.https.onCall(async (data) => {
     const usersRef = admin.firestore().collection('users');
 
-    usersRef.orderBy('email').startAt(name).endAt(name+'\uf8ff')
-});*/
+    const query = await usersRef
+        .orderBy('email')
+        .startAt(data.emailStr)
+        .endAt(data.emailStr + '\uf8ff')
+        .limit(data.limit)
+        .get();
+
+    let alikeUsernames = [];
+
+    query.forEach((doc) => {
+        const data = doc.data();
+        alikeUsernames.push({
+            email: data.email,
+            uid: doc.id,
+            isVendor: data.isVendor
+        });
+    });
+
+    return alikeUsernames;
+});
