@@ -102,6 +102,8 @@ exports.createTransaction = functions.https.onCall( async (data, context) => {
         idTarget: data.uid,
         amount: data.amount,
         fee: fee,
+        treeAmount: treeAmount,
+        commited: null,
         timestamp: admin.firestore.FieldValue.serverTimestamp()
     });
 
@@ -113,9 +115,29 @@ exports.createTransaction = functions.https.onCall( async (data, context) => {
 
 //Al crear un nuevo evento de plantación, la siguiente función actualiza los árboles plantados totales.
 exports.plantationEvent = functions.firestore.document('plantationEvent/{plantationId}').onCreate( async (snap) => {
+    const transactionsRef = admin.firestore().collection('transactions');
+    const ignoredTrees = 1; //Arboles ignorados en el proceso de commiteo de transacciones.
+    const batchSize = 10; //Cantidad de transacciones solicitadas en cada batch
     const plantationEvent = await snap.data();
-    const plantedTrees = plantationEvent.plantedTrees;
-    
+    const location = plantationEvent.location;
+    let plantedTrees = plantationEvent.plantedTrees;
+
+    while (plantedTrees > ignoredTrees) {
+        const query = await transactionsRef
+        .where('commited', '==', false)
+        .orderBy('timestamp', desc)
+        .limit(batchSize)
+        .get();
+        
+        query.forEach((doc) => {
+            const data = doc.data();
+            transactionsRef.doc(doc.id).update({
+                commited: location
+            });
+            plantedTrees -= data.treeAmount;
+        });
+    }
+
     return admin.firestore().collection('plantationData').doc('globalTrees').update({
         didPlant: admin.firestore.FieldValue.increment(plantedTrees)
     });
@@ -126,11 +148,11 @@ exports.alikeUsernames = functions.https.onCall(async (data) => {
     const usersRef = admin.firestore().collection('users');
 
     const query = await usersRef
-        .orderBy('email')
-        .startAt(data.emailStr)
-        .endAt(data.emailStr + '\uf8ff')
-        .limit(data.limit)
-        .get();
+    .orderBy('email')
+    .startAt(data.emailStr)
+    .endAt(data.emailStr + '\uf8ff')
+    .limit(data.limit)
+    .get();
 
     let alikeUsernames = [];
 
