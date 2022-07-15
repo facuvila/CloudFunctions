@@ -122,21 +122,16 @@ exports.plantationEvent = functions.firestore.document('plantationEvent/{plantat
     const location = plantationEvent.location;
     let plantedTrees = plantationEvent.plantedTrees;
 
-    while (plantedTrees > ignoredTrees) {
-        const query = await transactionsRef
-        .where('commited', '==', false)
-        .orderBy('timestamp', desc)
-        .limit(batchSize)
-        .get();
-        
-        query.forEach((doc) => {
-            const data = doc.data();
-            transactionsRef.doc(doc.id).update({
-                commited: location
-            });
-            plantedTrees -= data.treeAmount;
-        });
-    }
+    const query = await transactionsRef
+    .where('treeAmount', '>', 0)
+    .where('commited', '==', false)
+    .orderBy('timestamp', "asc")
+    .limit(batchSize)
+    .get();
+    
+    query.forEach((doc) => {
+        console.log(doc.id);
+    });
 
     return admin.firestore().collection('plantationData').doc('globalTrees').update({
         didPlant: admin.firestore.FieldValue.increment(plantedTrees)
