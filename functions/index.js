@@ -121,20 +121,27 @@ exports.plantationEvent = functions.firestore.document('plantationEvent/{plantat
     const plantationEvent = await snap.data();
     const location = plantationEvent.location;
     let plantedTrees = plantationEvent.plantedTrees;
-
+    
     const query = await transactionsRef
-    .where('treeAmount', '>', 0)
     .where('commited', '==', false)
     .orderBy('timestamp', "asc")
     .limit(batchSize)
     .get();
     
-    query.forEach((doc) => {
-        console.log(doc.id);
-    });
+    while(plantedTrees > ignoredTrees) {
+        query.forEach((doc) => {
+            const data = doc.data();
+            if (plantedTrees >= data.treeAmount) {
+                transactionsRef.doc(doc.id).update({
+                    commited: location
+                });
+                plantedTrees -= data.treeAmount;
+            }
+        });
+    }
 
     return admin.firestore().collection('plantationData').doc('globalTrees').update({
-        didPlant: admin.firestore.FieldValue.increment(plantedTrees)
+        didPlant: admin.firestore.FieldValue.increment(plantationEvent.plantedTrees - plantedTrees)
     });
 });
 
