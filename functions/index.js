@@ -21,10 +21,24 @@ exports.deleteProfile = functions.auth.user().onDelete((user) => {
 
 //Run on call, retrieves asked user's data.
 exports.getUserData = functions.https.onCall(async (data, context) => {
+    const amountOfTransactions = 3;
     return await admin.firestore().collection('users').doc(data.uid).get()
-    .then((doc) => {
+    .then(async (doc) => {
         const retrievedData = doc.data();
         if (data.uid == context.auth.uid ) {
+            const transactionsRef = admin.firestore().collection('transactions');
+            const query = await transactionsRef
+            .where('idOrigin', '==', context.auth.uid)
+            .orderBy('timestamp', "desc")
+            .limit(amountOfTransactions)
+            .get();
+            let lastTransactions = [];
+            query.forEach((doc) => {
+                let data = doc.data();
+                data.id = doc.id;
+                lastTransactions.push(data);
+            });
+            retrievedData.lastTransactions = lastTransactions;
             return retrievedData;
         } else {
             return {
