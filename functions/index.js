@@ -111,6 +111,16 @@ exports.createTransaction = functions.https.onCall( async (data, context) => {
     });
 
     data.amount = parseInt(data.amount); //A INVESTIGAR PORQUÉ SE HACE STRING
+    
+    const transaction = {
+        idOrigin: context.auth.uid,
+        idTarget: data.uid,
+        amount: data.amount,
+        fee: fee,
+        treeAmount: treeAmount,
+        commited: null,
+    }
+
     batch.set(regRef, {
         idOrigin: context.auth.uid,
         idTarget: data.uid,
@@ -124,7 +134,7 @@ exports.createTransaction = functions.https.onCall( async (data, context) => {
     // FIN DE TRANSACTION
     await batch.commit();
 
-    return {status: 'Ok', code: 200, message: 'Transaction completed.'};
+    return {status: 'Ok', code: 200, message: 'Transaction completed.', data: transaction};
 });
 
 //Al crear un nuevo evento de plantación, la siguiente función actualiza los árboles plantados totales.
@@ -142,17 +152,15 @@ exports.plantationEvent = functions.firestore.document('plantationEvent/{plantat
     .limit(batchSize)
     .get();
     
-    while(plantedTrees > ignoredTrees) {
-        query.forEach((doc) => {
-            const data = doc.data();
-            if (plantedTrees >= data.treeAmount) {
-                transactionsRef.doc(doc.id).update({
-                    commited: location
-                });
-                plantedTrees -= data.treeAmount;
-            }
-        });
-    }
+    query.forEach((doc) => {
+        const data = doc.data();
+        if (plantedTrees >= data.treeAmount) {
+            transactionsRef.doc(doc.id).update({
+                commited: location
+            });
+            plantedTrees -= data.treeAmount;
+        }
+    });
 
     return admin.firestore().collection('plantationData').doc('globalTrees').update({
         didPlant: admin.firestore.FieldValue.increment(plantationEvent.plantedTrees - plantedTrees)
