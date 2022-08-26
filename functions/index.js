@@ -138,13 +138,18 @@ exports.createTransaction = functions.https.onCall( async (data, context) => {
 });
 
 //Al crear un nuevo evento de plantación, la siguiente función actualiza los árboles plantados totales.
-exports.plantationEvent = functions.firestore.document('plantationEvent/{plantationId}').onCreate( async (snap) => {
+exports.plantationEvent = functions.https.onCall(async (data) => {
     const transactionsRef = admin.firestore().collection('transactions');
     const ignoredTrees = 1; //Arboles ignorados en el proceso de commiteo de transacciones.
     const batchSize = 10; //Cantidad de transacciones solicitadas en cada batch
-    const plantationEvent = await snap.data();
-    const location = plantationEvent.location;
-    let plantedTrees = plantationEvent.plantedTrees;
+    const location = data.location;
+    let plantedTrees = parseInt(data.plantedTrees);
+
+    admin.firestore().collection('plantationEvent').doc().set({
+        location: location,
+        plantedTrees: plantedTrees,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+    })
     
     const query = await transactionsRef
     .where('commited', '==', false)
@@ -163,7 +168,7 @@ exports.plantationEvent = functions.firestore.document('plantationEvent/{plantat
     });
 
     return admin.firestore().collection('plantationData').doc('globalTrees').update({
-        didPlant: admin.firestore.FieldValue.increment(plantationEvent.plantedTrees - plantedTrees)
+        didPlant: admin.firestore.FieldValue.increment(parseInt(data.plantedTrees) - plantedTrees)
     });
 });
 
