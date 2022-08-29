@@ -7,12 +7,19 @@ exports.createProfile = functions.auth.user().onCreate((user) => {
     return admin.firestore().collection('users').doc(user.uid).set({
         email: user.email,
         balance: 0,
-        contributedTrees: 0, //Árboles aportados
+        contributedTrees: {
+            total: 0,
+            northamerica: 0,
+            southamerica: 0,
+            europe: 0,
+            asia: 0,
+            africa: 0,
+            oceania: 0
+        }, //Árboles aportados
         contacts: [],
         isVendor: false
     });
 });
-
 
 //Run when a user is deleted in FirebaseAuth, deletes his profile in Firestore.
 exports.deleteProfile = functions.auth.user().onDelete((user) => {
@@ -85,7 +92,7 @@ exports.createTransaction = functions.https.onCall( async (data, context) => {
 
     let originRef = usersRef.doc(context.auth.uid);
     let targetRef = usersRef.doc(data.uid);
-    let leafRef = usersRef.doc('dtdAiM9nChcNdyR1a9NpC1e54Ag2');
+    let leafRef = usersRef.doc('FDjwWu7tncacN0BTqFCKAwxLnmj1');
     let plantRef = admin.firestore().collection('plantationData').doc('globalTrees');
     let regRef = admin.firestore().collection('transactions').doc();
 
@@ -94,7 +101,7 @@ exports.createTransaction = functions.https.onCall( async (data, context) => {
 
     batch.update(originRef, {
         balance: admin.firestore.FieldValue.increment(-1 * data.amount),
-        contributedTrees: admin.firestore.FieldValue.increment(treeAmount)
+        "contributedTrees.total": admin.firestore.FieldValue.increment(treeAmount)
     });
 
     batch.update(targetRef, {
@@ -118,7 +125,7 @@ exports.createTransaction = functions.https.onCall( async (data, context) => {
         amount: data.amount,
         fee: fee,
         treeAmount: treeAmount,
-        commited: null,
+        committed: false,
     }
 
     batch.set(regRef, {
@@ -127,7 +134,7 @@ exports.createTransaction = functions.https.onCall( async (data, context) => {
         amount: data.amount,
         fee: fee,
         treeAmount: treeAmount,
-        commited: null,
+        committed: false,
         timestamp: admin.firestore.FieldValue.serverTimestamp()
     });
 
@@ -140,32 +147,64 @@ exports.createTransaction = functions.https.onCall( async (data, context) => {
 //Al crear un nuevo evento de plantación, la siguiente función actualiza los árboles plantados totales.
 exports.plantationEvent = functions.https.onCall(async (data) => {
     const transactionsRef = admin.firestore().collection('transactions');
-    const ignoredTrees = 1; //Arboles ignorados en el proceso de commiteo de transacciones.
+    const usersRef = admin.firestore().collection('users');
     const batchSize = 10; //Cantidad de transacciones solicitadas en cada batch
     const location = data.location;
     let plantedTrees = parseInt(data.plantedTrees);
-
-    admin.firestore().collection('plantationEvent').doc().set({
-        location: location,
-        plantedTrees: plantedTrees,
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
-    })
     
     const query = await transactionsRef
-    .where('commited', '==', false)
+    .where('committed', '==', false)
     .orderBy('timestamp', "asc")
     .limit(batchSize)
     .get();
-    
+
     query.forEach((doc) => {
         const data = doc.data();
         if (plantedTrees >= data.treeAmount) {
             transactionsRef.doc(doc.id).update({
-                commited: location
-            });
+                committed: location
+            });            
+            switch (location) {
+                case 'northamerica':
+                    usersRef.doc(data.idOrigin).update({
+                        "contributedTrees.northamerica": admin.firestore.FieldValue.increment(data.treeAmount)
+                    });
+                    break;
+                case 'southamerica':
+                    usersRef.doc(data.idOrigin).update({
+                        "contributedTrees.southamerica": admin.firestore.FieldValue.increment(data.treeAmount)
+                    });
+                    break;
+                case 'europe':
+                    usersRef.doc(data.idOrigin).update({
+                        "contributedTrees.europe": admin.firestore.FieldValue.increment(data.treeAmount)
+                    });
+                    break;
+                case 'asia':
+                    usersRef.doc(data.idOrigin).update({
+                        "contributedTrees.asia": admin.firestore.FieldValue.increment(data.treeAmount)
+                    });
+                    break;
+                case 'africa':
+                    usersRef.doc(data.idOrigin).update({
+                        "contributedTrees.africa": admin.firestore.FieldValue.increment(data.treeAmount)
+                    });
+                    break;
+                case 'oceania':
+                    usersRef.doc(data.idOrigin).update({
+                        "contributedTrees.oceania": admin.firestore.FieldValue.increment(data.treeAmount)
+                    });
+                    break;
+            }
             plantedTrees -= data.treeAmount;
         }
     });
+
+    admin.firestore().collection('plantationEvent').doc().set({
+        location: location,
+        plantedTrees: parseInt(data.plantedTrees) - plantedTrees,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+    })
 
     return admin.firestore().collection('plantationData').doc('globalTrees').update({
         didPlant: admin.firestore.FieldValue.increment(parseInt(data.plantedTrees) - plantedTrees)
